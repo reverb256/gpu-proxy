@@ -1,5 +1,10 @@
 # gpu-proxy
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Nix Flake](https://img.shields.io/badge/Nix-Flake-5277C3?logo=nixos&logoColor=white)](flake.nix)
+[![Built with Nix](https://img.shields.io/badge/Built%20with-Nix-5277C3?logo=nixos)](https://nixos.org)
+
+
 C++ Stratum mining proxy for CR29/Kryptex with TLS, pool failover, and multi-worker management. Version 2.0.0.
 
 ## Architecture
