@@ -52,6 +52,8 @@
         }
       );
 
+      kubernetesModules.default = import ./kubernetes/module.nix;
+
       nixosModules.default = import ./nix/module.nix self;
 
       devShells = forAllSystems (
