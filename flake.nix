@@ -19,8 +19,7 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-        in
-        {
+
           gpu-proxy = pkgs.stdenv.mkDerivation rec {
             pname = "gpu-proxy";
             version = "2.0.0";
@@ -48,7 +47,33 @@
             '';
           };
 
-          default = self.packages.${system}.gpu-proxy;
+          # OCI container image
+          container = pkgs.dockerTools.buildLayeredImage {
+            name = "gpu-proxy";
+            tag = "latest";
+            contents = [
+              gpu-proxy
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.cacert
+            ];
+            config = {
+              Cmd = [
+                "${gpu-proxy}/bin/gpu-proxy"
+              ];
+              ExposedPorts = {
+                "3334/tcp" = { };
+                "8083/tcp" = { };
+              };
+              Env = [
+                "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+              ];
+            };
+          };
+        in
+        {
+          inherit gpu-proxy container;
+          default = gpu-proxy;
         }
       );
 
@@ -77,6 +102,13 @@
               echo "  cmake -B build && cmake --build build"
             '';
           };
+        }
+      );
+
+      checks = forAllSystems (
+        system:
+        {
+          build = self.packages.${system}.gpu-proxy;
         }
       );
     };
