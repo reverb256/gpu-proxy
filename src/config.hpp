@@ -8,11 +8,11 @@ namespace gpu_proxy {
 struct PoolConfig {
     std::string name;
     std::string host;
-    uint16_t port;
+    uint16_t port = 3333;  // Default stratum port (CWE-457: was uninitialized)
     std::string wallet;
     std::string password;
-    bool tls;
-    int priority;
+    bool tls = false;
+    int priority = 0;
 };
 
 struct WorkerConfig {

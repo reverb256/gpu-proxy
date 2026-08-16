@@ -51,6 +51,10 @@ public:
 
     // I/O operations
     bool send_line(const std::string& line);
+    // Flush buffered outbound bytes (retry after a partial/EAGAIN write).
+    bool flush_send_buffer();
+    // True when send_line() could not write everything yet.
+    bool has_pending_send() const { return !send_buffer_.empty(); }
     ssize_t read_data();
 
     // Callbacks
@@ -82,6 +86,12 @@ private:
     // Read buffer
     std::string read_buffer_;
     static constexpr size_t BUFFER_SIZE = 8192;
+    // Cap on buffered input awaiting a newline (prevents unbounded growth
+    // when a peer sends a very long line without a terminator).
+    static constexpr size_t MAX_BUFFER_SIZE = 1 << 20;  // 1 MiB
+
+    // Outbound buffer (send_line() appends; flush_send_buffer() drains).
+    std::string send_buffer_;
 
     // Callbacks
     MessageCallback message_cb_;
