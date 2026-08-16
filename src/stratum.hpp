@@ -19,15 +19,17 @@ enum class StratumMethod {
 };
 
 struct StratumRequest {
-    int id;
-    StratumMethod method;
+    // Defaulted so a parse failure never leaves this read uninitialized
+    // (CWE-457): pools/workers may send string or missing ids.
+    int id = 0;
+    StratumMethod method = StratumMethod::UNKNOWN;
     nlohmann::json params;
 
     static StratumRequest parse(const std::string& line);
 };
 
 struct StratumResponse {
-    int id;
+    int id = 0;
     nlohmann::json result;
     nlohmann::json error;
 
@@ -39,8 +41,8 @@ struct Job {
     std::string blob;
     std::string target;
     std::string difficulty;
-    uint64_t height;
-    bool clean_jobs;
+    uint64_t height = 0;
+    bool clean_jobs = false;
 
     static Job from_notify(const nlohmann::json& params);
 };

@@ -86,9 +86,12 @@ void EventLoop::poll_and_process(int timeout_ms) {
         else if (conn->state() == ConnectionState::CONNECTING) {
             pfd.events |= POLLOUT;
         }
-        // Normal connected state - check for read
+        // Normal connected state - check for read (and pending writes)
         else if (conn->is_connected()) {
             pfd.events |= POLLIN;
+            if (conn->has_pending_send()) {
+                pfd.events |= POLLOUT;
+            }
         }
 
         pfds.push_back(pfd);
@@ -204,18 +207,38 @@ void EventLoop::handle_write_event(Connection* conn) {
             }
         }
     }
+
+    // Flush any buffered outbound data (send_line() buffers the remainder
+    // when a non-blocking write makes partial progress).
+    if (conn->is_connected()) {
+        conn->flush_send_buffer();
+    }
 }
 
 void EventLoop::cleanup_closed() {
-    auto it = connections_.begin();
-    while (it != connections_.end()) {
-        if (it->second->should_close()) {
-            fprintf(stderr, "[EventLoop] Closing connection %d (%s)\n",
-                    it->first, it->second->name().c_str());
-            it = connections_.erase(it);
-        } else {
-            ++it;
+    // Collect fds first. Firing the state callbacks below can add new
+    // connections (pool reconnect), so iterating the map while mutating it
+    // would invalidate the iterator.
+    std::vector<int> to_close;
+    for (const auto& [fd, conn] : connections_) {
+        if (conn->should_close()) {
+            to_close.push_back(fd);
         }
+    }
+    for (int fd : to_close) {
+        auto it = connections_.find(fd);
+        if (it == connections_.end()) {
+            continue;
+        }
+        fprintf(stderr, "[EventLoop] Closing connection %d (%s)\n",
+                fd, it->second->name().c_str());
+        // Fire the state callback BEFORE freeing the connection so managers
+        // (WorkerManager::on_worker_state, PoolManager::on_pool_state) drop
+        // their non-owning references. Without this, WorkerManager::workers_
+        // retains a dangling Connection* and send_job() dereferences freed
+        // memory (use-after-free), and pool disconnects never reconnect.
+        it->second->set_state(ConnectionState::DISCONNECTED);
+        connections_.erase(it);
     }
 }
 

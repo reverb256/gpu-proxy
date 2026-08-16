@@ -228,29 +228,46 @@ bool Connection::send_line(const std::string& line) {
         return false;
     }
 
-    std::string full_line = line + "\n";
-    int sent;
+    send_buffer_ += line;
+    send_buffer_ += '\n';
+    return flush_send_buffer();
+}
 
-    if (pimpl_->ssl) {
-        sent = SSL_write(pimpl_->ssl, full_line.c_str(), full_line.length());
-    } else {
-        sent = write(fd_, full_line.c_str(), full_line.length());
-    }
+bool Connection::flush_send_buffer() {
+    while (!send_buffer_.empty()) {
+        size_t remaining = send_buffer_.length();
+        int sent;
 
-    if (sent <= 0) {
+        if (pimpl_->ssl) {
+            sent = SSL_write(pimpl_->ssl, send_buffer_.data(), remaining);
+        } else {
+            sent = write(fd_, send_buffer_.data(), remaining);
+        }
+
+        if (sent > 0) {
+            send_buffer_.erase(0, sent);
+            continue;
+        }
+
+        // sent <= 0: no progress made.
         if (pimpl_->ssl) {
             int err = SSL_get_error(pimpl_->ssl, sent);
-            fprintf(stderr, "[%s] SSL_write error: %d\n", name_.c_str(), err);
             if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
-                return true;  // Try again later
+                // Non-blocking backpressure — retry on next POLLOUT.
+                return false;
             }
+            fprintf(stderr, "[%s] SSL_write error: %d\n", name_.c_str(), err);
+        } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Non-blocking backpressure — retry on next POLLOUT.
+                return false;
+            }
+            fprintf(stderr, "[%s] Send failed: %s\n", name_.c_str(), strerror(errno));
         }
-        fprintf(stderr, "[%s] Send failed: %s\n", name_.c_str(), strerror(errno));
         should_close_ = true;
         return false;
     }
-
-    return static_cast<size_t>(sent) == full_line.length();
+    return true;
 }
 
 ssize_t Connection::read_data() {
@@ -295,6 +312,16 @@ ssize_t Connection::read_data() {
     }
 
     buf[received] = '\0';
+
+    // Reject runaway input: a peer sending a very long line without a
+    // newline would otherwise grow read_buffer_ without bound.
+    if (read_buffer_.size() + received > MAX_BUFFER_SIZE) {
+        fprintf(stderr, "[%s] Read buffer exceeded %zu bytes, closing connection\n",
+                name_.c_str(), MAX_BUFFER_SIZE);
+        should_close_ = true;
+        return -1;
+    }
+
     read_buffer_.append(buf, received);
 
     // Process complete lines
